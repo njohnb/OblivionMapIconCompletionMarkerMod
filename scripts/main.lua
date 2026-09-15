@@ -215,11 +215,7 @@ end
 
 --- Checks whether the configured controller button is currently held.
 --- Uses UObject reflection to call the PlayerController's reflected
---- IsInputKeyDown UFUNCTION with a gamepad FKey. Verified to work on the
---- world map for D-pad, X, B, Y, shoulders and triggers. Note that the map
---- consumes A (Gamepad_FaceButton_Bottom) for "travel/select", so that button
---- never reaches this poll -- see config.lua. Fully guarded so a lookup or
---- reflection failure can never break Shift/mouse support.
+--- IsInputKeyDown UFUNCTION with a gamepad FKey.
 local function IsControllerButtonDown()
     if not IsValidObject(playerController) then
         playerController = FindFirstOf("PlayerController")
