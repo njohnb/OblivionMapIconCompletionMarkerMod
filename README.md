@@ -5,10 +5,22 @@ This helps you track what you've finished, which is especially useful for Oblivi
 Available for [download on Nexus Mods](https://www.nexusmods.com/oblivionremastered/mods/3786)!
 
 ## Usage
+
+### Keyboard & mouse
 1. Open the World Map.
 2. Hover over any icon.
 3. Press Shift to switch the icon to its "completed" state.
 4. Press Shift again to toggle it back to "uncompleted."
+
+### Controller
+1. Open the World Map.
+2. Move the cursor over any icon.
+3. Press the configured button (**D-pad Down** by default) to switch the icon to its "completed" state.
+4. Press it again to toggle it back to "uncompleted."
+
+You can change the controller button in `scripts/config.lua` via the `controllerButton` setting
+(an Unreal FKey name, e.g. `Gamepad_FaceButton_Top` for Y). Note: avoid `Gamepad_FaceButton_Bottom`
+(A / Cross) — the world map reserves that button for "travel/select," so it never reaches the mod.
 
 The icon toggle states are saved across game sessions in the `<player_name>_toggled_icons.json` file.
 You can manually edit this file if needed.

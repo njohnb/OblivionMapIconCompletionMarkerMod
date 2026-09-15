@@ -11,10 +11,14 @@ local Config = require("config")
 -- State tracking
 local wasInWorldMap = false
 local wasShiftDown = false
+local wasButtonDown = false
 local pollingLoopHandle = nil
 local hoveredIcon = nil
 local loaded = false
 local OnFadeToGameBeginEventReceived_Hook = nil
+
+-- Whether we have already warned that controller polling failed (avoids log spam)
+local controllerPollWarned = false
 
 -- A list of the keys for all icons that have been toggled off
 local toggledIconKeys = {}
@@ -28,6 +32,9 @@ local cachedMaterialsByKey = {}
 
 -- The player subsystem, used for input polling
 local navInput = FindFirstOf("VUINavigationPlayerSubsystem")
+
+-- The player controller, used for polling controller (gamepad) input
+local playerController = FindFirstOf("PlayerController")
 
 --- Checks if the given UObject is valid
 local function IsValidObject(obj)
@@ -145,6 +152,36 @@ local function HookIconUnhovered()
     end)
 end
 
+--- Hook into the controller virtual-cursor hover event.
+--- When navigating the map with a controller, the game drives a virtual
+--- cursor and fires OnCursorHoverIcon instead of the mouse OnIconHovered.
+--- Wrapped in pcall so a missing/renamed function never breaks mouse support.
+local function HookCursorHoverIcon()
+    local ok = pcall(function()
+        HookManager.Register("CursorHoverIcon", "/Game/UI/Original/GameMenuLayer/Map/WBP_Modern_MapWidget.WBP_Modern_MapWidget_C:OnCursorHoverIcon", function(_, params)
+            local mapIcon = params[1]
+            if IsValidObject(mapIcon) then
+                hoveredIcon = mapIcon
+            end
+        end)
+    end)
+    if not ok then
+        print("[MapIconCompletionMarkerMod] [WARN] Could not hook OnCursorHoverIcon; controller hover may be unavailable")
+    end
+end
+
+--- Hook into the controller virtual-cursor unhover event.
+local function HookCursorUnhoverIcon()
+    local ok = pcall(function()
+        HookManager.Register("CursorUnhoverIcon", "/Game/UI/Original/GameMenuLayer/Map/WBP_Modern_MapWidget.WBP_Modern_MapWidget_C:OnCursorUnhoverIcon", function(_, params)
+            hoveredIcon = nil
+        end)
+    end)
+    if not ok then
+        print("[MapIconCompletionMarkerMod] [WARN] Could not hook OnCursorUnhoverIcon; controller hover may be unavailable")
+    end
+end
+
 --- Toggles the map icon's material between "on" and "off" state
 local function ToggleIconState(mapIcon)
     if not IsValidObject(mapIcon) then return end
@@ -176,24 +213,61 @@ local function ToggleIconState(mapIcon)
     end
 end
 
---- Starts polling for user input (Shift + Hover)
+--- Checks whether the configured controller button is currently held.
+--- Uses UObject reflection to call the PlayerController's reflected
+--- IsInputKeyDown UFUNCTION with a gamepad FKey. Verified to work on the
+--- world map for D-pad, X, B, Y, shoulders and triggers. Note that the map
+--- consumes A (Gamepad_FaceButton_Bottom) for "travel/select", so that button
+--- never reaches this poll -- see config.lua. Fully guarded so a lookup or
+--- reflection failure can never break Shift/mouse support.
+local function IsControllerButtonDown()
+    if not IsValidObject(playerController) then
+        playerController = FindFirstOf("PlayerController")
+        if not IsValidObject(playerController) then return false end
+    end
+
+    local ok, result = pcall(function()
+        return playerController:IsInputKeyDown({ KeyName = FName(Config.controllerButton) })
+    end)
+
+    if not ok then
+        if not controllerPollWarned then
+            controllerPollWarned = true
+            print("[MapIconCompletionMarkerMod] [WARN] Controller input poll failed (IsInputKeyDown): " .. tostring(result))
+        end
+        return false
+    end
+
+    return result == true
+end
+
+--- Starts polling for user input (Shift/controller button + Hover)
 local function StartInputPollingLoop()
     if pollingLoopHandle then return end
 
     pollingLoopHandle = LoopAsync(30, function()
         local success, err = pcall(function()
+            -- Keyboard: Shift key
             if not IsValidObject(navInput) then
                 navInput = FindFirstOf("VUINavigationPlayerSubsystem")
-                if not IsValidObject(navInput) then return end
             end
+            local shiftDown = IsValidObject(navInput) and navInput:IsShiftKeyDown() or false
 
-            local shiftDown = navInput:IsShiftKeyDown()
-            if shiftDown and not wasShiftDown and hoveredIcon then
+            -- Controller: configured gamepad button
+            local buttonDown = IsControllerButtonDown()
+
+            -- Rising-edge detection for each input source
+            local shiftPressed = shiftDown and not wasShiftDown
+            local buttonPressed = buttonDown and not wasButtonDown
+
+            if (shiftPressed or buttonPressed) and hoveredIcon then
                 ToggleIconState(hoveredIcon)
             end
+
             wasShiftDown = shiftDown
+            wasButtonDown = buttonDown
         end)
-        
+
         return false
     end)
 end
@@ -205,6 +279,7 @@ local function StopInputPollingLoop()
         pollingLoopHandle = nil
     end
     wasShiftDown = false
+    wasButtonDown = false
 end
 
 --- Determines whether the player is currently viewing the world map
@@ -287,6 +362,8 @@ LoopAsync(200, function()
             LoadToggledIcons()
             HookIconHovered()
             HookIconUnhovered()
+            HookCursorHoverIcon()
+            HookCursorUnhoverIcon()
             loaded = true
         end
     end
